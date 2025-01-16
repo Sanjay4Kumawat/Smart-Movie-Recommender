@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,108 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
+  Image,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
+
+const NEWS_API_KEY = '4c9f0dea0e6f4f1d8c3f8b6e9c2b5a9d'; // You'll need to get an API key from NewsAPI
+const NEWS_BASE_URL = 'https://newsapi.org/v2';
+
+const API_KEY = 'a6b600ee182f74ad61627c463ebb75e3';
+const BASE_URL = 'https://api.themoviedb.org/3';
+const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
+
+const MovieNews = ({ navigation }) => {
+  const [news, setNews] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMovieUpdates();
+  }, []);
+
+  const fetchMovieUpdates = async () => {
+    try {
+      const response = await fetch(
+        `${BASE_URL}/movie/upcoming?api_key=${API_KEY}&language=en-US&page=1`
+      );
+      const data = await response.json();
+      
+      if (data.results) {
+        const newsItems = data.results.map(movie => ({
+          id: movie.id,
+          title: `'${movie.title}' Coming to Theaters`,
+          image: movie.backdrop_path 
+            ? `${IMAGE_BASE_URL}${movie.backdrop_path}`
+            : movie.poster_path 
+              ? `${IMAGE_BASE_URL}${movie.poster_path}`
+              : 'https://via.placeholder.com/300x200',
+          date: movie.release_date,
+          description: movie.overview,
+          type: 'upcoming'
+        }));
+        setNews(newsItems);
+      }
+    } catch (error) {
+      console.error('Error fetching movie updates:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.newsLoadingContainer}>
+        <ActivityIndicator size="small" color="#FF3741" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Movie Updates</Text>
+        <TouchableOpacity>
+          <Text style={styles.seeAll}>See All</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.newsContainer}
+      >
+        {news.map(item => (
+          <TouchableOpacity
+            key={item.id}
+            style={styles.newsCard}
+            onPress={() => navigation.navigate('MovieDetails', { movieId: item.id })}
+          >
+            <Image
+              source={{ uri: item.image }}
+              style={styles.newsImage}
+            />
+            <View style={styles.newsContent}>
+              <Text style={styles.newsType}>Upcoming Release</Text>
+              <Text style={styles.newsTitle} numberOfLines={2}>
+                {item.title}
+              </Text>
+              <Text style={styles.newsDate}>
+                {new Date(item.date).toLocaleDateString('en-US', {
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+};
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -96,6 +194,8 @@ const HomeScreen = () => {
                 </View>
               </TouchableOpacity>
             </View>
+
+            <MovieNews navigation={navigation} />
           </ScrollView>
         </View>
       </SafeAreaView>
@@ -164,19 +264,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 25,
+    marginBottom: 20,
+    gap: 12,
   },
   categoryCard: {
-    width: '50%',
+    width: '48%',
     backgroundColor: 'rgba(255,255,255,0.05)',
-    padding: 20,
+    padding: 16,
     borderRadius: 15,
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   categoryTitle: {
     color: '#FFFFFF',
-    marginTop: 10,
+    marginTop: 8,
     fontSize: 16,
     fontWeight: '500',
   },
@@ -205,6 +306,58 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     marginTop: 15,
+  },
+  newsLoadingContainer: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  newsContainer: {
+    paddingHorizontal: 16,
+  },
+  newsCard: {
+    width: 300,
+    marginRight: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  newsImage: {
+    width: '100%',
+    height: 150,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  newsContent: {
+    padding: 12,
+  },
+  newsSource: {
+    color: '#FF3741',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  newsTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  newsDate: {
+    color: '#8E8E93',
+    fontSize: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  newsType: {
+    color: '#FF3741',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
 });
 
