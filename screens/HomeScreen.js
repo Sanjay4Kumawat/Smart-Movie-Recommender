@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     marginBottom: 25,
   },
   categoryCard: {
-    width: '48%',
+    width: '50%',
     backgroundColor: 'rgba(255,255,255,0.05)',
     padding: 20,
     borderRadius: 15,
