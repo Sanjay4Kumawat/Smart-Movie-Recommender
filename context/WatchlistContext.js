@@ -17,7 +17,7 @@ export const WatchlistProvider = ({ children }) => {
       const saved = await AsyncStorage.getItem(WATCHLIST_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Handle legacy watchlist format
+        // Handle legacy format (backwards compatibility)
         if (Array.isArray(parsed)) {
           setWatchlist({ movies: parsed, tvShows: [] });
         } else {
@@ -68,9 +68,9 @@ export const WatchlistProvider = ({ children }) => {
   };
 
   return (
-    <WatchlistContext.Provider
-      value={{
-        watchlist,
+    <WatchlistContext.Provider 
+      value={{ 
+        watchlist, 
         isInWatchlist,
         addToWatchlist,
         removeFromWatchlist,
