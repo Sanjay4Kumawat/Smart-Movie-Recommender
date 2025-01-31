@@ -30,7 +30,7 @@ const GetStarted = () => {
           <View style={styles.contentContainer}>
             <View style={styles.headerContainer}>
               <Icon name="movie-open" size={60} color="#FF3741" />
-              <Text style={styles.title}>MovieMate</Text>
+              <Text style={styles.title}>SMR</Text>
               <Text style={styles.subtitle}>
                 Your Personal Movie Curator
               </Text>

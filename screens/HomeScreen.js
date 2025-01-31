@@ -146,7 +146,7 @@ const HomeScreen = () => {
           {/* Header */}
           <View style={styles.header}>
             <Icon name="movie-open" size={30} color="#FF3741" />
-            <Text style={styles.headerTitle}>MovieMate</Text>
+            <Text style={styles.headerTitle}>SMR</Text>
             <TouchableOpacity>
               <Icon name="account-circle" size={30} color="#FFFFFF" />
             </TouchableOpacity>
@@ -362,3 +362,34 @@ const styles = StyleSheet.create({
 });
 
 export default HomeScreen; 
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

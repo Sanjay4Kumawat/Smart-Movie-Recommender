@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Movie-Recommender",
-    "slug": "Movie-Recommender",
+    "slug": "smr",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icont.png",
@@ -27,8 +27,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "74085884-15db-4f6e-992b-d7fd65f5608b"
+        "projectId": "d20e38d4-4257-4334-8665-6263305f2863"
       }
-    }
+    },
+    "owner": "sanjay_kumawat2"
   }
 }
