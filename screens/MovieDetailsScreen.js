@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useWatchlist } from '../context/WatchlistContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -25,6 +26,8 @@ const API_KEY = 'a6b600ee182f74ad61627c463ebb75e3';
 const BASE_URL = 'https://api.themoviedb.org/3';
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/original';
 const WATCHLIST_KEY = '@moviemate_watchlist';
+const USER_PREFERENCES_KEY = '@moviemate_preferences';
+const WATCH_HISTORY_KEY = '@moviemate_history';
 
 const STREAMING_PLATFORMS = [
   {
@@ -38,7 +41,7 @@ const STREAMING_PLATFORMS = [
   {
     id: 'prime',
     name: 'Prime Video',
-    icon: 'prime',
+    icon: 'amazon',
     color: '#00A8E1',
     url: 'primevideo://app/detail/',
     webUrl: 'https://www.amazon.com/gp/video/detail/'
@@ -46,7 +49,7 @@ const STREAMING_PLATFORMS = [
   {
     id: 'disney',
     name: 'Disney+',
-    icon: 'play-circle',
+    icon: 'disney-plus',
     color: '#0063E5',
     url: 'disneyplus://video/',
     webUrl: 'https://www.disneyplus.com/movies/'
@@ -54,7 +57,7 @@ const STREAMING_PLATFORMS = [
   {
     id: 'hbo',
     name: 'HBO Max',
-    icon: 'play-circle',
+    icon: 'play-network',
     color: '#991EEB',
     url: 'hbomax://page/movie/',
     webUrl: 'https://play.hbomax.com/page/movie/'
@@ -67,6 +70,7 @@ const MovieDetails = ({ route, navigation }) => {
   const [inWatchlist, setInWatchlist] = useState(false);
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [similarMovies, setSimilarMovies] = useState([]);
 
   useEffect(() => {
     if (isInWatchlist) {
@@ -76,21 +80,194 @@ const MovieDetails = ({ route, navigation }) => {
 
   useEffect(() => {
     if (movieId) {
-      fetchMovieDetails();
+      Promise.all([
+        fetchMovieDetails(),
+        fetchRecommendedMovies()
+      ]).catch(error => {
+        console.error('Error in data fetching:', error);
+      });
     }
   }, [movieId]);
 
   const fetchMovieDetails = async () => {
+    setLoading(true);
     try {
+      // Fetch movie details with additional data
       const response = await fetch(
-        `${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&append_to_response=credits,videos`
+        `${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&append_to_response=credits,videos,watch/providers`
       );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch movie details');
+      }
+      
       const data = await response.json();
       setDetails(data);
+      
     } catch (error) {
       console.error('Error fetching movie details:', error);
+      Alert.alert(
+        'Error',
+        'Failed to load movie details. Please try again later.'
+      );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUserPreferences = async () => {
+    try {
+      const preferences = await AsyncStorage.getItem(USER_PREFERENCES_KEY);
+      const watchHistory = await AsyncStorage.getItem(WATCH_HISTORY_KEY);
+      return {
+        preferences: preferences ? JSON.parse(preferences) : null,
+        watchHistory: watchHistory ? JSON.parse(watchHistory) : []
+      };
+    } catch (error) {
+      console.error('Error fetching user preferences:', error);
+      return { preferences: null, watchHistory: [] };
+    }
+  };
+
+  const fetchRecommendedMovies = async () => {
+    try {
+      // First ensure we have movie details
+      if (!details) {
+        console.log('Waiting for movie details to load...');
+        return;
+      }
+
+      const { watchHistory } = await fetchUserPreferences();
+      
+      // First try to fetch exact matches
+      const [similarResponse, languageResponse, genreResponse] = await Promise.all([
+        fetch(`${BASE_URL}/movie/${movieId}/similar?api_key=${API_KEY}&language=en-US&page=1`),
+        // Only include genres if we have them
+        fetch(
+          `${BASE_URL}/discover/movie?api_key=${API_KEY}` +
+          `&with_original_language=${details.original_language}` +
+          (details.genres?.length ? `&with_genres=${details.genres.map(g => g.id).join(',')}` : '') +
+          `&sort_by=popularity.desc&page=1`
+        ),
+        // Fallback genre request
+        fetch(
+          `${BASE_URL}/discover/movie?api_key=${API_KEY}` +
+          (details.genres?.length ? `&with_genres=${details.genres.map(g => g.id).join(',')}` : '') +
+          `&sort_by=popularity.desc&page=1`
+        )
+      ]);
+
+      const similarData = await similarResponse.json();
+      const languageData = await languageResponse.json();
+      const genreData = await genreResponse.json();
+
+      // Combine all results
+      let recommendedMovies = [
+        ...similarData.results,
+        ...languageData.results,
+        ...genreData.results
+      ]
+      .filter((movie, index, self) => 
+        index === self.findIndex(m => m.id === movie.id))
+      .filter(movie => movie.id !== movieId)
+      .filter(movie => !watchHistory.includes(movie.id));
+
+      // Calculate scores and sort
+      recommendedMovies = recommendedMovies.map(movie => ({
+        ...movie,
+        relevanceScore: calculateRelevanceScore(movie, details)
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, 10);
+
+      setSimilarMovies(recommendedMovies);
+      
+      // Save this movie's characteristics to user preferences
+      await updateUserPreferences(details);
+      
+    } catch (error) {
+      console.error('Error fetching recommended movies:', error);
+      // Fallback to similar movies only if everything fails
+      try {
+        const similarResponse = await fetch(
+          `${BASE_URL}/movie/${movieId}/similar?api_key=${API_KEY}&language=en-US&page=1`
+        );
+        const similarData = await similarResponse.json();
+        setSimilarMovies(similarData.results.slice(0, 10));
+      } catch (e) {
+        setSimilarMovies([]);
+      }
+    }
+  };
+
+  const calculateRelevanceScore = (movie, currentMovie) => {
+    let score = 0;
+
+    // Industry matching (based on language and production countries)
+    if (movie.original_language === currentMovie?.original_language) {
+      score += 10;
+    }
+
+    // Genre matching
+    const matchingGenres = movie.genre_ids?.filter(genreId => 
+      currentMovie?.genres?.some(g => g.id === genreId)
+    ).length || 0;
+    score += matchingGenres * 5;
+
+    // Release date proximity
+    const currentMovieYear = new Date(currentMovie?.release_date).getFullYear();
+    const movieYear = new Date(movie.release_date).getFullYear();
+    const yearDiff = Math.abs(currentMovieYear - movieYear);
+    if (yearDiff <= 2) score += 8;
+    else if (yearDiff <= 5) score += 5;
+    else if (yearDiff <= 10) score += 3;
+
+    // Title similarity (for movie series/franchises)
+    if (movie.title?.includes(currentMovie?.title) || 
+        currentMovie?.title?.includes(movie.title)) {
+      score += 15;
+    }
+
+    // Production company matching
+    const currentCompanies = currentMovie?.production_companies?.map(c => c.id) || [];
+    if (movie.production_companies?.some(c => currentCompanies.includes(c.id))) {
+      score += 7;
+    }
+
+    return score;
+  };
+
+  const updateUserPreferences = async (movieDetails) => {
+    try {
+      const prefsString = await AsyncStorage.getItem(USER_PREFERENCES_KEY);
+      let prefs = prefsString ? JSON.parse(prefsString) : {
+        genres: {},
+        languages: {},
+        companies: {},
+        watchedGenres: []
+      };
+
+      // Update genre preferences
+      movieDetails.genres?.forEach(genre => {
+        prefs.genres[genre.id] = (prefs.genres[genre.id] || 0) + 1;
+        if (!prefs.watchedGenres.includes(genre.id)) {
+          prefs.watchedGenres.push(genre.id);
+        }
+      });
+
+      // Update language preferences
+      const lang = movieDetails.original_language;
+      prefs.languages[lang] = (prefs.languages[lang] || 0) + 1;
+
+      // Update production company preferences
+      movieDetails.production_companies?.forEach(company => {
+        prefs.companies[company.id] = (prefs.companies[company.id] || 0) + 1;
+      });
+
+      // Save updated preferences
+      await AsyncStorage.setItem(USER_PREFERENCES_KEY, JSON.stringify(prefs));
+    } catch (error) {
+      console.error('Error updating user preferences:', error);
     }
   };
 
@@ -106,15 +283,84 @@ const MovieDetails = ({ route, navigation }) => {
       setInWatchlist(!inWatchlist);
 
       Alert.alert(
-        inWatchlist ? 'Removed from Watchlist' : 'Added to Watchlist',
+        inWatchlist ? '🎬 Removed from Watchlist' : '🎬 Added to Watchlist',
         inWatchlist
-          ? 'Movie has been removed from your watchlist'
-          : 'Movie has been added to your watchlist',
-        [{ text: 'OK' }]
+          ? `${details.title} has been removed from your watchlist`
+          : `${details.title} has been added to your watchlist`,
+        [
+          {
+            text: 'OK',
+            style: 'default',
+            onPress: () => {},
+            color: '#FF3741'
+          }
+        ],
+        {
+          cancelable: true,
+          overlayStyle: {
+            backgroundColor: 'rgba(26, 26, 31, 0.9)'
+          },
+          contentContainerStyle: {
+            backgroundColor: '#2A2A30',
+            borderRadius: 16,
+            borderWidth: 2,
+            borderColor: '#FF3741',
+            padding: 20,
+            shadowColor: '#FF3741',
+            shadowOffset: {
+              width: 0,
+              height: 2
+            },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5
+          },
+          titleStyle: {
+            color: '#FF3741',
+            fontSize: 18,
+            fontWeight: 'bold',
+            textAlign: 'center',
+            marginBottom: 10
+          },
+          messageStyle: {
+            color: '#FFFFFF',
+            fontSize: 16,
+            textAlign: 'center',
+            lineHeight: 22
+          }
+        }
       );
     } catch (error) {
       console.error('Error toggling watchlist:', error);
-      Alert.alert('Error', 'Failed to update watchlist');
+      Alert.alert(
+        '❌ Error',
+        'Failed to update watchlist',
+        [{ text: 'OK', color: '#FF3741' }],
+        {
+          cancelable: true,
+          overlayStyle: {
+            backgroundColor: 'rgba(26, 26, 31, 0.9)'
+          },
+          contentContainerStyle: {
+            backgroundColor: '#2A2A30',
+            borderRadius: 16,
+            borderWidth: 2,
+            borderColor: '#FF3741',
+            padding: 20
+          },
+          titleStyle: {
+            color: '#FF3741',
+            fontSize: 18,
+            fontWeight: 'bold',
+            textAlign: 'center'
+          },
+          messageStyle: {
+            color: '#FFFFFF',
+            fontSize: 16,
+            textAlign: 'center'
+          }
+        }
+      );
     }
   };
 
@@ -183,6 +429,35 @@ const MovieDetails = ({ route, navigation }) => {
       );
     }
   };
+
+  const updateWatchHistory = async (movieId) => {
+    try {
+      const history = await AsyncStorage.getItem(WATCH_HISTORY_KEY);
+      const watchHistory = history ? JSON.parse(history) : [];
+      
+      if (!watchHistory.includes(movieId)) {
+        watchHistory.push(movieId);
+        await AsyncStorage.setItem(WATCH_HISTORY_KEY, JSON.stringify(watchHistory));
+      }
+    } catch (error) {
+      console.error('Error updating watch history:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (movieId) {
+      updateWatchHistory(movieId);
+    }
+  }, [movieId]);
+
+  // Update the useEffect to wait for details
+  useEffect(() => {
+    if (movieId && details) { // Only fetch recommendations when we have details
+      fetchRecommendedMovies().catch(error => {
+        console.error('Error in recommendation fetching:', error);
+      });
+    }
+  }, [movieId, details]); // Add details as a dependency
 
   if (loading) {
     return (
@@ -376,6 +651,46 @@ const MovieDetails = ({ route, navigation }) => {
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            {/* Similar Movies Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Similar Movies</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.similarMoviesContainer}
+              >
+                {similarMovies.map(movie => (
+                  <TouchableOpacity
+                    key={movie.id}
+                    style={styles.similarMovieCard}
+                    onPress={() => {
+                      navigation.push('MovieDetails', { movieId: movie.id });
+                    }}
+                  >
+                    <Image
+                      source={{
+                        uri: movie.poster_path
+                          ? `${IMAGE_BASE_URL}${movie.poster_path}`
+                          : 'https://via.placeholder.com/150x225'
+                      }}
+                      style={styles.similarMoviePoster}
+                    />
+                    <View style={styles.similarMovieInfo}>
+                      <Text style={styles.similarMovieTitle} numberOfLines={2}>
+                        {movie.title}
+                      </Text>
+                      <View style={styles.similarMovieMeta}>
+                        <Icon name="star" size={14} color="#FFD700" />
+                        <Text style={styles.similarMovieRating}>
+                          {movie.vote_average?.toFixed(1)}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           </View>
         </ScrollView>
@@ -624,6 +939,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginTop: 2,
+  },
+  similarMoviesContainer: {
+    marginTop: 12,
+  },
+  similarMovieCard: {
+    width: 120,
+    marginRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  similarMoviePoster: {
+    width: '100%',
+    height: 180,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  similarMovieInfo: {
+    padding: 8,
+  },
+  similarMovieTitle: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  similarMovieMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  similarMovieRating: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
 });
 

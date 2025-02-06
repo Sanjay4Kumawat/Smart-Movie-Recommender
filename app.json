@@ -4,7 +4,7 @@
     "slug": "smr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icont.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -23,7 +23,7 @@
       "package": "com.sanjay_kumawat.MovieRecommender"
     },
     "web": {
-      "favicon": "./assets/icont.png"
+      "favicon": "./assets/icon.png"
     },
     "extra": {
       "eas": {

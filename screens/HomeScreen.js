@@ -9,10 +9,13 @@ import {
   Image,
   ActivityIndicator,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
+import UserPreferences from '../utils/UserPreferences';
+import { getRecommendedMovies } from '../utils/UserPreferences';
 
 const NEWS_API_KEY = '4c9f0dea0e6f4f1d8c3f8b6e9c2b5a9d'; // You'll need to get an API key from NewsAPI
 const NEWS_BASE_URL = 'https://newsapi.org/v2';
@@ -68,12 +71,7 @@ const MovieNews = ({ navigation }) => {
 
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Movie Updates</Text>
-        <TouchableOpacity>
-          <Text style={styles.seeAll}>See All</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.sectionTitle}>Movie Updates</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -111,6 +109,14 @@ const MovieNews = ({ navigation }) => {
 
 const HomeScreen = () => {
   const navigation = useNavigation();
+  const [recommendedMovies, setRecommendedMovies] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [userActivity, setUserActivity] = useState({
+    recentlyViewed: [],
+    searchHistory: [],
+    watchlist: []
+  });
 
   const movieCategories = [
     { id: 1, title: 'Trending Movies', icon: 'fire' },
@@ -138,6 +144,59 @@ const HomeScreen = () => {
     }
   };
 
+  useEffect(() => {
+    loadInitialRecommendations();
+  }, []);
+
+  useEffect(() => {
+    if (userActivity.recentlyViewed.length > 0) {
+      loadRecommendations();
+    }
+  }, [userActivity]);
+
+  const loadInitialRecommendations = async () => {
+    try {
+      setLoading(true);
+      const watchlist = await UserPreferences.getLikedMovies();
+      const recommendations = await UserPreferences.getRecommendedMovies();
+      setRecommendedMovies(recommendations);
+    } catch (error) {
+      console.error('Error loading initial recommendations:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRecommendations = async () => {
+    try {
+      const recommendations = await getRecommendedMovies();
+      setRecommendedMovies(recommendations);
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
+    }
+  };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRecommendations();
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const handleMoviePress = async (movieId) => {
+    try {
+      await UserPreferences.trackMovieView({ id: movieId });
+      navigation.navigate('MovieDetails', { movieId });
+    } catch (error) {
+      console.error('Error handling movie press:', error);
+      navigation.navigate('MovieDetails', { movieId });
+    }
+  };
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1F" />
@@ -156,6 +215,14 @@ const HomeScreen = () => {
             style={styles.mainContent}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#FF3741"
+                colors={["#FF3741"]}
+              />
+            }
           >
 
             {/* Search Bar */}
@@ -195,7 +262,41 @@ const HomeScreen = () => {
               </TouchableOpacity>
             </View>
 
+            {/* Recommendations Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Recommended For You</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {recommendedMovies.map(movie => (
+                  <TouchableOpacity
+                    key={movie.id}
+                    style={styles.movieCard}
+                    onPress={() => navigation.navigate('MovieDetails', { movieId: movie.id })}
+                  >
+                    <Image
+                      source={{
+                        uri: movie.poster_path
+                          ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
+                          : 'https://via.placeholder.com/150x225'
+                      }}
+                      style={styles.moviePoster}
+                    />
+                    <View style={styles.movieInfo}>
+                      <Text style={styles.movieTitle} numberOfLines={2}>
+                        {movie.title}
+                      </Text>
+                      <View style={styles.ratingContainer}>
+                        <Icon name="star" size={16} color="#FFD700" />
+                        <Text style={styles.rating}>{movie.vote_average?.toFixed(1)}</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Movie Updates Section */}
             <MovieNews navigation={navigation} />
+
           </ScrollView>
         </View>
       </SafeAreaView>
@@ -358,6 +459,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginBottom: 4,
+  },
+  movieCard: {
+    width: 150,
+    marginRight: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  moviePoster: {
+    width: '100%',
+    height: 225,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  movieInfo: {
+    padding: 12,
+  },
+  movieTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rating: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
 });
 
